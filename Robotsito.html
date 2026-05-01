@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Robot Monitor Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0e1a; font-family: 'Courier New', monospace; color: #00e5ff; overflow-x: hidden; }
+
+  .dash { padding: 12px; min-height: 100vh; }
+
+  .title-bar {
+    font-size: 11px; color: #4dd0e1; letter-spacing: 2px;
+    margin-bottom: 10px; border-bottom: 1px solid #1a3a4a;
+    padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center;
+  }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #00ff88;
+    display: inline-block; margin-right: 6px; animation: blink 1.5s infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .grid-main { display: grid; grid-template-columns: 220px 1fr; gap: 10px; }
+
+  .left-col { display: flex; flex-direction: column; gap: 10px; }
+  .right-col { display: flex; flex-direction: column; gap: 10px; }
+
+  .panel {
+    background: #0d1b2e; border: 1px solid #1a4060;
+    border-radius: 6px; padding: 10px;
+  }
+  .panel-label {
+    font-size: 9px; color: #4dd0e1; letter-spacing: 1.5px;
+    margin-bottom: 6px; text-transform: uppercase;
+  }
+
+  .big-val { font-size: 28px; font-weight: bold; color: #00e5ff; }
+  .unit { font-size: 11px; color: #4dd0e1; margin-left: 4px; }
+  .sub-val { font-size: 11px; color: #80deea; margin-top: 2px; }
+
+  .metric-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .metric {
+    background: #0d1b2e; border: 1px solid #1a4060;
+    border-radius: 6px; padding: 8px;
+  }
+  .m-label { font-size: 9px; color: #4dd0e1; letter-spacing: 1px; }
+  .m-val { font-size: 18px; color: #00e5ff; font-weight: bold; margin-top: 2px; }
+  .m-unit { font-size: 10px; color: #4dd0e1; }
+
+  .wheels-container { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .wheel-box {
+    background: #0d1b2e; border: 1px solid #1a4060;
+    border-radius: 6px; padding: 8px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .wheel-label { font-size: 9px; color: #4dd0e1; letter-spacing: 1px; }
+  .wheel-val { font-size: 13px; color: #00e5ff; font-weight: bold; }
+
+  .pos-box { display: flex; gap: 16px; align-items: baseline; }
+  .pos-coord { font-size: 22px; color: #00e5ff; font-weight: bold; }
+  .pos-lbl { font-size: 10px; color: #4dd0e1; }
+
+  .bars { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+  .bar-row { display: flex; align-items: center; gap: 6px; }
+  .bar-lbl { font-size: 9px; color: #4dd0e1; width: 20px; }
+  .bar-track { flex: 1; height: 6px; background: #0a2030; border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; transition: width 0.15s; }
+
+  canvas { display: block; }
+
+  .btn-row { display: flex; gap: 8px; margin-top: 10px; }
+  button {
+    background: #0d1b2e; border: 1px solid #1a4060; color: #4dd0e1;
+    font-family: 'Courier New', monospace; font-size: 10px; letter-spacing: 1px;
+    padding: 6px 14px; border-radius: 4px; cursor: pointer;
+    text-transform: uppercase; transition: background 0.2s, color 0.2s;
+  }
+  button:hover { background: #1a4060; color: #00e5ff; }
+
+  @media (max-width: 700px) {
+    .grid-main { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="dash">
+  <div class="title-bar">
+    <span><span class="status-dot"></span>ROBOT MONITOR — CONECTADO · RECIBIENDO DATOS</span>
+    <span id="tick-info">t: 0 · pulsos: 0 · Δ: 0.000000 m/tick</span>
+  </div>
+
+  <div class="grid-main">
+    <div class="left-col">
+      <div class="panel">
+        <div class="panel-label">Trayectoria</div>
+        <canvas id="traj" width="200" height="160"></canvas>
+        <div style="font-size:10px;color:#4dd0e1;margin-top:4px;" id="traj-info">0.00m · 0pts</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-label">Eje Global (Mundo)</div>
+        <div class="pos-box">
+          <div><div class="pos-lbl">X global (m)</div><div class="pos-coord" id="gx">0.000</div></div>
+          <div><div class="pos-lbl">Y global (m)</div><div class="pos-coord" id="gy">0.000</div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-label">Eje Carro (Local)</div>
+        <div class="pos-box">
+          <div><div class="pos-lbl">X local (adelante)</div><div class="pos-coord" id="lx">0.000</div></div>
+          <div><div class="pos-lbl">Y local (lateral)</div><div class="pos-coord" id="ly">0.000</div></div>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button onclick="resetPos()">Reiniciar Posición</button>
+        <button onclick="resetAll()">Reiniciar Todo</button>
+      </div>
+      <div style="font-size:10px;color:#4dd0e1;" id="pulse-count">0 / 0</div>
+    </div>
+
+    <div class="right-col">
+      <div class="metric-row">
+        <div class="metric">
+          <div class="m-label">ÁNGULO θ (°)</div>
+          <div class="m-val" id="angle-deg">0.0°</div>
+          <div style="font-size:9px;color:#4dd0e1;">orientación del carro</div>
+        </div>
+        <div class="metric">
+          <div class="m-label">ÁNGULO θ (rad)</div>
+          <div class="m-val" id="angle-rad">0.000</div>
+          <div style="font-size:9px;color:#4dd0e1;">radianes</div>
+        </div>
+        <div class="metric">
+          <div class="m-label">DISTANCIA TOTAL</div>
+          <div class="m-val" id="dist-total">0.000 <span class="m-unit">m</span></div>
+          <div style="font-size:9px;color:#4dd0e1;">trayectoria recorrida</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-label">Ángulo θ (°) — Orientación del carro</div>
+        <canvas id="angle-chart" width="460" height="70"></canvas>
+      </div>
+
+      <div class="panel">
+        <div class="panel-label">Diff Ticks (I − D)</div>
+        <canvas id="diff-chart" width="460" height="70"></canvas>
+      </div>
+
+      <div class="panel">
+        <div class="panel-label">Velocidad (m/s)</div>
+        <div style="display:flex;align-items:center;gap:16px;">
+          <div>
+            <div class="pos-lbl">Velocidad actual</div>
+            <div style="font-size:40px;color:#00e5ff;font-weight:bold;" id="speed-val">0.000</div>
+            <div style="font-size:10px;color:#4dd0e1;">m/s</div>
+          </div>
+          <canvas id="speedometer" width="130" height="85"></canvas>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-label">Llantas — Independientes</div>
+        <div class="wheels-container">
+          <div class="wheel-box">
+            <div class="wheel-label">RUEDA IZQUIERDA</div>
+            <canvas id="wheel-l" width="80" height="80"></canvas>
+            <div class="wheel-val"><span id="ticks-l">0</span> ticks &nbsp;|&nbsp; <span id="ronda-l">0</span> m</div>
+            <div class="bars" style="width:90%;">
+              <div class="bar-row">
+                <span class="bar-lbl">vel</span>
+                <div class="bar-track"><div class="bar-fill" id="bar-l" style="width:0%;background:#00e5ff;"></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="wheel-box">
+            <div class="wheel-label">RUEDA DERECHA</div>
+            <canvas id="wheel-r" width="80" height="80"></canvas>
+            <div class="wheel-val"><span id="ticks-r">0</span> ticks &nbsp;|&nbsp; <span id="ronda-r">0</span> m</div>
+            <div class="bars" style="width:90%;">
+              <div class="bar-row">
+                <span class="bar-lbl">vel</span>
+                <div class="bar-track"><div class="bar-fill" id="bar-r" style="width:0%;background:#ff6b35;"></div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="wheel-box">
+            <div class="wheel-label">RUEDA IZQ GLOBAL</div>
+            <div class="pos-box" style="gap:8px;">
+              <div><div class="pos-lbl">X rueda (m)</div><div style="font-size:15px;color:#00e5ff;" id="wlx">0.000</div></div>
+              <div><div class="pos-lbl">Y rueda (m)</div><div style="font-size:15px;color:#00e5ff;" id="wly">0.000</div></div>
+            </div>
+          </div>
+          <div class="wheel-box">
+            <div class="wheel-label">RUEDA DER GLOBAL</div>
+            <div class="pos-box" style="gap:8px;">
+              <div><div class="pos-lbl">X rueda (m)</div><div style="font-size:15px;color:#ff6b35;" id="wrx">0.000</div></div>
+              <div><div class="pos-lbl">Y rueda (m)</div><div style="font-size:15px;color:#ff6b35;" id="wry">0.000</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TICKS_PER_REV = 40;
+const WHEEL_RADIUS  = 0.033;
+const BASE          = 0.20;
+const DIST_PER_TICK = (2 * Math.PI * WHEEL_RADIUS) / TICKS_PER_REV;
+const MAX_PATH_PTS  = 300;
+const CHART_PTS     = 100;
+const UPDATE_MS     = 150;
+
+function getTicksDelta() {
+  return {
+    dL: Math.floor(Math.random() * 4),
+    dR: Math.floor(Math.random() * 4),
+  };
+}
+
+let state = {
+  ticksL: 0, ticksR: 0,
+  theta: 0,
+  x: 0, y: 0,
+  dist: 0,
+  t: 0,
+  velL: 0, velR: 0,
+  path: [{x:0, y:0}],
+  angleHist: new Array(CHART_PTS).fill(0),
+  diffHist:  new Array(CHART_PTS).fill(0),
+  wheelAngleL: 0,
+  wheelAngleR: 0,
+  pulses: 0,
+  totalTicks: 0
+};
+
+function update() {
+  const { dL, dR } = getTicksDelta();
+
+  state.velL = dL;
+  state.velR = dR;
+  state.ticksL += dL;
+  state.ticksR += dR;
+  state.pulses    += dL + dR;
+  state.totalTicks += dL + dR;
+
+  state.wheelAngleL += dL * (2 * Math.PI / TICKS_PER_REV) * 6;
+  state.wheelAngleR += dR * (2 * Math.PI / TICKS_PER_REV) * 6;
+
+  const dl     = dL * DIST_PER_TICK;
+  const dr     = dR * DIST_PER_TICK;
+  const dc     = (dl + dr) / 2;
+  const dtheta = (dr - dl) / BASE;
+  state.theta += dtheta;
+  state.x     += dc * Math.cos(state.theta);
+  state.y     += dc * Math.sin(state.theta);
+  state.dist  += dc;
+  state.t++;
+
+  state.angleHist.push(state.theta * 180 / Math.PI);
+  if (state.angleHist.length > CHART_PTS) state.angleHist.shift();
+  state.diffHist.push(dL - dR);
+  if (state.diffHist.length > CHART_PTS) state.diffHist.shift();
+
+  const last = state.path[state.path.length - 1];
+  if (Math.abs(state.x - last.x) > 0.003 || Math.abs(state.y - last.y) > 0.003) {
+    state.path.push({ x: state.x, y: state.y });
+    if (state.path.length > MAX_PATH_PTS) state.path.shift();
+  }
+}
+
+function drawWheel(canvasId, angle, color) {
+  const c = document.getElementById(canvasId);
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const cx = 40, cy = 40, r = 30;
+  ctx.clearRect(0, 0, 80, 80);
+
+  ctx.strokeStyle = '#1a4060';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r + 5, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+
+  for (let i = 0; i < 6; i++) {
+    const a = angle + i * Math.PI / 3;
+    ctx.strokeStyle = color + '88';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * 8, cy + Math.sin(a) * 8);
+    ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + Math.cos(angle) * r * 0.75, cy + Math.sin(angle) * r * 0.75);
+  ctx.stroke();
+
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawSpeedometer(speed) {
+  const c = document.getElementById('speedometer');
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, 130, 85);
+  const cx = 65, cy = 80, r = 58;
+  const startA = Math.PI, endA = 2 * Math.PI;
+  const maxSpeed = 0.5;
+  const frac = Math.min(speed / maxSpeed, 1);
+  const sweepEnd = startA + frac * Math.PI;
+
+  ctx.strokeStyle = '#1a4060';
+  ctx.lineWidth = 10;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, startA, endA);
+  ctx.stroke();
+
+  if (frac > 0) {
+    const grad = ctx.createLinearGradient(cx - r, cy, cx + r, cy);
+    grad.addColorStop(0, '#00e5ff');
+    grad.addColorStop(1, '#ff6b35');
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, startA, sweepEnd);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + Math.cos(sweepEnd) * (r - 14), cy + Math.sin(sweepEnd) * (r - 14));
+  ctx.stroke();
+
+  for (let i = 0; i <= 5; i++) {
+    const a = Math.PI + i * (Math.PI / 5);
+    ctx.strokeStyle = '#4dd0e1';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * (r - 14), cy + Math.sin(a) * (r - 14));
+    ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    ctx.stroke();
+  }
+}
+
+function drawLineChart(canvasId, data, color, minV, maxV) {
+  const c = document.getElementById(canvasId);
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+
+  ctx.strokeStyle = '#1a4060';
+  ctx.lineWidth = 0.5;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(0, h / 2);
+  ctx.lineTo(w, h / 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  if (data.length < 2) return;
+  const range = (maxV - minV) || 1;
+  const toY = v => h - ((v - minV) / range) * h * 0.9 - h * 0.05;
+
+  ctx.fillStyle = color + '22';
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = (i / (data.length - 1)) * w;
+    i === 0 ? ctx.moveTo(x, toY(v)) : ctx.lineTo(x, toY(v));
+  });
+  ctx.lineTo(w, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = (i / (data.length - 1)) * w;
+    i === 0 ? ctx.moveTo(x, toY(v)) : ctx.lineTo(x, toY(v));
+  });
+  ctx.stroke();
+}
+
+function drawTraj() {
+  const c = document.getElementById('traj');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, 200, 160);
+
+  if (state.path.length < 2) {
+    ctx.fillStyle = '#00ff88';
+    ctx.beginPath();
+    ctx.arc(100, 80, 4, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+
+  const xs = state.path.map(p => p.x);
+  const ys = state.path.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const rangeX = (maxX - minX) || 0.01;
+  const rangeY = (maxY - minY) || 0.01;
+  const scale  = Math.min(180 / rangeX, 140 / rangeY);
+  const offX   = 10 + (180 - rangeX * scale) / 2;
+  const offY   = 10 + (140 - rangeY * scale) / 2;
+  const toX = x => offX + (x - minX) * scale;
+  const toY = y => 160 - offY - (y - minY) * scale;
+
+  ctx.lineWidth = 1.5;
+  for (let i = 1; i < state.path.length; i++) {
+    const t = i / state.path.length;
+    ctx.strokeStyle = `rgba(0,${Math.floor(150 + 105 * t)},${Math.floor(200 + 55 * t)},${0.3 + 0.7 * t})`;
+    ctx.beginPath();
+    ctx.moveTo(toX(state.path[i - 1].x), toY(state.path[i - 1].y));
+    ctx.lineTo(toX(state.path[i].x), toY(state.path[i].y));
+    ctx.stroke();
+  }
+
+  const last = state.path[state.path.length - 1];
+  const cx = toX(last.x), cy2 = toY(last.y);
+  ctx.fillStyle = '#ff6b35';
+  ctx.beginPath();
+  ctx.arc(cx, cy2, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = '#ff6b35';
+  ctx.lineWidth = 1.5;
+  const arrLen = 12;
+  const ex = cx + Math.cos(state.theta) * arrLen;
+  const ey = cy2 - Math.sin(state.theta) * arrLen;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy2);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+
+  ctx.fillStyle = '#00ff88';
+  ctx.beginPath();
+  ctx.arc(toX(0), toY(0), 3, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function render() {
+  const thetaDeg = state.theta * 180 / Math.PI;
+  const speed    = (state.velL + state.velR) * DIST_PER_TICK / 2 * (1000 / UPDATE_MS);
+
+  document.getElementById('angle-deg').textContent  = thetaDeg.toFixed(1) + '°';
+  document.getElementById('angle-rad').textContent  = state.theta.toFixed(4);
+  document.getElementById('dist-total').textContent = state.dist.toFixed(3) + ' m';
+  document.getElementById('gx').textContent         = state.x.toFixed(3);
+  document.getElementById('gy').textContent         = state.y.toFixed(3);
+  document.getElementById('lx').textContent         = state.dist.toFixed(3);
+  document.getElementById('ly').textContent         = (BASE * state.theta).toFixed(3);
+  document.getElementById('ticks-l').textContent    = state.ticksL;
+  document.getElementById('ticks-r').textContent    = state.ticksR;
+  document.getElementById('ronda-l').textContent    = (state.ticksL * DIST_PER_TICK).toFixed(2);
+  document.getElementById('ronda-r').textContent    = (state.ticksR * DIST_PER_TICK).toFixed(2);
+  document.getElementById('speed-val').textContent  = speed.toFixed(3);
+  document.getElementById('tick-info').textContent  =
+    `t: ${state.t} · pulsos: ${state.pulses} · Δ: ${DIST_PER_TICK.toFixed(6)} m/tick`;
+  document.getElementById('traj-info').textContent  =
+    `${state.dist.toFixed(2)}m · ${state.path.length}pts`;
+  document.getElementById('pulse-count').textContent =
+    `${state.totalTicks} / ${state.totalTicks}`;
+
+  const hw = BASE / 2;
+  document.getElementById('wlx').textContent = (state.x - hw * Math.sin(state.theta)).toFixed(3);
+  document.getElementById('wly').textContent = (state.y + hw * Math.cos(state.theta)).toFixed(3);
+  document.getElementById('wrx').textContent = (state.x + hw * Math.sin(state.theta)).toFixed(3);
+  document.getElementById('wry').textContent = (state.y - hw * Math.cos(state.theta)).toFixed(3);
+
+  document.getElementById('bar-l').style.width = Math.min(state.velL / 3 * 100, 100) + '%';
+  document.getElementById('bar-r').style.width = Math.min(state.velR / 3 * 100, 100) + '%';
+
+  drawWheel('wheel-l', state.wheelAngleL, '#00e5ff');
+  drawWheel('wheel-r', state.wheelAngleR, '#ff6b35');
+  drawSpeedometer(speed);
+
+  const aMin = Math.min(...state.angleHist) - 5;
+  const aMax = Math.max(...state.angleHist) + 5;
+  drawLineChart('angle-chart', state.angleHist, '#00e5ff', aMin, aMax);
+  drawLineChart('diff-chart',  state.diffHist,  '#ff6b35', -4, 4);
+
+  drawTraj();
+}
+
+window.resetPos = function () {
+  state.x = 0; state.y = 0; state.theta = 0; state.dist = 0;
+  state.path = [{x:0, y:0}];
+  state.angleHist = new Array(CHART_PTS).fill(0);
+  state.diffHist  = new Array(CHART_PTS).fill(0);
+};
+window.resetAll = function () {
+  state = {
+    ticksL: 0, ticksR: 0, theta: 0, x: 0, y: 0, dist: 0,
+    t: 0, velL: 0, velR: 0, path: [{x:0,y:0}],
+    angleHist: new Array(CHART_PTS).fill(0),
+    diffHist:  new Array(CHART_PTS).fill(0),
+    wheelAngleL: 0, wheelAngleR: 0, pulses: 0, totalTicks: 0
+  };
+};
+
+function loop() {
+  update();
+  render();
+  setTimeout(loop, UPDATE_MS);
+}
+loop();
+</script>
+</body>
+</html>
